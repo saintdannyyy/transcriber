@@ -1,0 +1,168 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>KasaYie ASR API</title>
+        <style>
+            body { 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                max-width: 900px; 
+                margin: 0 auto; 
+                padding: 20px;
+                line-height: 1.6;
+                color: #333;
+            }
+            h1 { color: #4f46e5; margin-bottom: 0.5em; }
+            h2 { color: #4338ca; margin-top: 1.5em; }
+            h3 { color: #3730a3; }
+            code { 
+                background-color: #f0f0f0; 
+                padding: 2px 4px; 
+                border-radius: 3px;
+                font-family: 'Courier New', Courier, monospace;
+            }
+            pre { 
+                background-color: #f0f0f0; 
+                padding: 15px; 
+                border-radius: 5px; 
+                overflow-x: auto;
+                border-left: 4px solid #4f46e5;
+            }
+            .endpoint { 
+                margin-bottom: 30px;
+                padding: 15px;
+                border-radius: 5px;
+                border: 1px solid #e5e7eb;
+                background-color: #f9fafb;
+            }
+            .method {
+                display: inline-block;
+                padding: 3px 6px;
+                border-radius: 4px;
+                margin-right: 8px;
+                font-weight: bold;
+                color: white;
+            }
+            .post { background-color: #10b981; }
+            .get { background-color: #3b82f6; }
+            .ws { background-color: #8b5cf6; }
+            .param {
+                margin-bottom: 10px;
+                padding-left: 10px;
+                border-left: 3px solid #d1d5db;
+            }
+            .param-name {
+                font-weight: bold;
+            }
+            .demo-link {
+                display: inline-block;
+                margin-top: 20px;
+                padding: 10px 15px;
+                background-color: #4f46e5;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            .demo-link:hover {
+                background-color: #4338ca;
+            }
+            footer {
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 1px solid #e5e7eb;
+                text-align: center;
+                font-size: 0.9em;
+                color: #6b7280;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>KasaYie ASR API</h1>
+        <p>Welcome to the KasaYie ASR API for Akan speech with support for speech impairments.</p>
+        
+        <a href="/demo" class="demo-link">Try the Demo</a>
+        
+        <h2>API Endpoints</h2>
+        
+        <div class="endpoint">
+            <h3><span class="method post">POST</span> /api/transcribe</h3>
+            <p>Upload an audio file for transcription.</p>
+            
+            <h4>Parameters:</h4>
+            <div class="param">
+                <div class="param-name">file</div>
+                <div>Audio file (WAV, MP3, etc.)</div>
+            </div>
+            <div class="param">
+                <div class="param-name">language</div>
+                <div>Language code: 'ak' for Akan/Twi (default), 'en' for English</div>
+            </div>
+            <div class="param">
+                <div class="param-name">task</div>
+                <div>'transcribe' (default) to output in original language, 'translate' to translate to English</div>
+            </div>
+            
+            <h4>Example:</h4>
+            <pre>curl -X POST -F "file=@audio.wav" -F "language=ak" -F "task=transcribe" http://localhost:8000/api/transcribe</pre>
+        </div>
+        
+        <div class="endpoint">
+            <h3><span class="method ws">WebSocket</span> /api/stream</h3>
+            <p>Stream audio in real-time for continuous transcription.</p>
+            
+            <h4>Parameters:</h4>
+            <div class="param">
+                <div class="param-name">language</div>
+                <div>Language code: 'ak' for Akan/Twi (default), 'en' for English</div>
+            </div>
+            <div class="param">
+                <div class="param-name">task</div>
+                <div>'transcribe' (default) to output in original language, 'translate' to translate to English</div>
+            </div>
+            
+            <h4>Example:</h4>
+            <pre>
+// JavaScript example
+const socket = new WebSocket('ws://localhost:8000/api/stream?language=ak&task=transcribe');
+socket.onopen = () => {
+  // Start sending audio data
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = e => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(e.data);
+        }
+      };
+      recorder.start(250); // Send data every 250ms
+    });
+};
+socket.onmessage = event => {
+  const response = JSON.parse(event.data);
+  if (response.type === 'transcription') {
+    console.log('Transcription:', response.text);
+  }
+};</pre>
+        </div>
+        
+        <div class="endpoint">
+            <h3><span class="method get">GET</span> /health</h3>
+            <p>Check the health status of the API.</p>
+            <h4>Example:</h4>
+            <pre>curl http://localhost:8000/health</pre>
+        </div>
+        
+        <div class="endpoint">
+            <h3><span class="method get">GET</span> /stats</h3>
+            <p>Get statistics about API usage.</p>
+            <h4>Example:</h4>
+            <pre>curl http://localhost:8000/stats</pre>
+        </div>
+        
+        <footer>
+            KasaYie ASR API - Powered by Whisper for Akan/Twi Speech Recognition
+        </footer>
+    </body>
+    </html>
+    

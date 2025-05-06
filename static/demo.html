@@ -1,0 +1,406 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>KasaYie ASR Demo</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                max-width: 900px;
+                margin: 0 auto;
+                padding: 20px;
+                line-height: 1.6;
+                color: #333;
+            }
+            h1 { color: #4f46e5; }
+            button {
+                padding: 10px 15px;
+                background-color: #4f46e5;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin: 5px;
+            }
+            button:hover { background-color: #4338ca; }
+            button:disabled {
+                background-color: #9ca3af;
+                cursor: not-allowed;
+            }
+            .controls {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                margin-bottom: 20px;
+            }
+            .status {
+                margin-left: 15px;
+                font-size: 14px;
+                color: #4b5563;
+            }
+            .transcript-container {
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 5px;
+                padding: 15px;
+                min-height: 200px;
+                margin-bottom: 20px;
+            }
+            .transcript {
+                white-space: pre-wrap;
+            }
+            select {
+                padding: 8px;
+                border-radius: 5px;
+                border: 1px solid #d1d5db;
+                margin-right: 10px;
+            }
+            .upload-container {
+                margin-top: 30px;
+                padding: 20px;
+                border: 2px dashed #d1d5db;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .upload-container input {
+                display: none;
+            }
+            .upload-label {
+                display: inline-block;
+                padding: 10px 15px;
+                background-color: #4f46e5;
+                color: white;
+                border-radius: 5px;
+                cursor: pointer;
+            }
+            .upload-label:hover {
+                background-color: #4338ca;
+            }
+            .settings {
+                margin-top: 20px;
+                padding: 15px;
+                background-color: #f3f4f6;
+                border-radius: 5px;
+            }
+            .status-indicator {
+                display: inline-block;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                margin-right: 8px;
+            }
+            .status-connected { background-color: #10b981; }
+            .status-disconnected { background-color: #ef4444; }
+            .status-connecting { background-color: #f59e0b; }
+            .visualizer {
+                width: 100%;
+                height: 100px;
+                background-color: #f3f4f6;
+                margin-bottom: 20px;
+                border-radius: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>KasaYie ASR Demo</h1>
+        <p>Test the Akan/Twi speech recognition with support for speech impairments</p>
+        
+        <div class="settings">
+            <label for="language">Language:</label>
+            <select id="language">
+                <option value="ak" selected>Akan/Twi</option>
+                <option value="en">English</option>
+            </select>
+            
+            <label for="task">Task:</label>
+            <select id="task">
+                <option value="transcribe" selected>Transcribe</option>
+                <option value="translate">Translate to English</option>
+            </select>
+        </div>
+        
+        <h2>Real-time Transcription</h2>
+        <canvas id="visualizer" class="visualizer"></canvas>
+        
+        <div class="controls">
+            <button id="startBtn">Start Recording</button>
+            <button id="stopBtn" disabled>Stop Recording</button>
+            <div class="status">
+                <span class="status-indicator status-disconnected" id="statusIndicator"></span>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </div>
+        
+        <div class="transcript-container">
+            <div class="transcript" id="transcript"></div>
+        </div>
+        
+        <h2>Upload Audio File</h2>
+        <div class="upload-container">
+            <input type="file" id="audioFileInput" accept="audio/*" />
+            <label for="audioFileInput" class="upload-label">Choose Audio File</label>
+            <p id="fileName">No file chosen</p>
+            <button id="uploadBtn" disabled>Transcribe File</button>
+        </div>
+        
+        <script>
+            // DOM Elements
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const transcript = document.getElementById('transcript');
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const languageSelect = document.getElementById('language');
+            const taskSelect = document.getElementById('task');
+            const audioFileInput = document.getElementById('audioFileInput');
+            const fileName = document.getElementById('fileName');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const visualizer = document.getElementById('visualizer');
+            const visualizerCtx = visualizer.getContext('2d');
+            
+            // Variables
+            let socket;
+            let mediaRecorder;
+            let audioStream;
+            let isRecording = false;
+            let audioContext;
+            let analyzer;
+            let dataArray;
+            let drawVisual;
+            
+            // Set up visualizer
+            function setupVisualizer(stream) {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                analyzer = audioContext.createAnalyser();
+                analyzer.fftSize = 256;
+                source.connect(analyzer);
+                
+                const bufferLength = analyzer.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+                
+                visualizer.width = visualizer.offsetWidth;
+                visualizer.height = visualizer.offsetHeight;
+                
+                function draw() {
+                    drawVisual = requestAnimationFrame(draw);
+                    
+                    analyzer.getByteFrequencyData(dataArray);
+                    
+                    visualizerCtx.fillStyle = '#f3f4f6';
+                    visualizerCtx.fillRect(0, 0, visualizer.width, visualizer.height);
+                    
+                    const barWidth = (visualizer.width / bufferLength) * 2.5;
+                    let x = 0;
+                    
+                    for (let i = 0; i < bufferLength; i++) {
+                        const barHeight = dataArray[i] / 2;
+                        
+                        visualizerCtx.fillStyle = `rgb(${barHeight + 100}, 79, 229)`;
+                        visualizerCtx.fillRect(x, visualizer.height - barHeight, barWidth, barHeight);
+                        
+                        x += barWidth + 1;
+                    }
+                }
+                
+                draw();
+            }
+            
+            // WebSocket Connection
+            function connectWebSocket() {
+                const language = languageSelect.value;
+                const task = taskSelect.value;
+                
+                // Update status
+                statusIndicator.className = 'status-indicator status-connecting';
+                statusText.textContent = 'Connecting...';
+                
+                // Create WebSocket connection
+                socket = new WebSocket(`ws://${window.location.host}/api/stream?language=${language}&task=${task}`);
+                
+                socket.onopen = () => {
+                    statusIndicator.className = 'status-indicator status-connected';
+                    statusText.textContent = 'Connected';
+                    startBtn.disabled = false;
+                };
+                
+                socket.onmessage = (event) => {
+                    try {
+                        const response = JSON.parse(event.data);
+                        
+                        if (response.type === 'transcription' && response.text) {
+                            transcript.innerHTML += response.text + ' ';
+                        } else if (response.type === 'connection_established') {
+                            console.log('Connection established:', response);
+                        }
+                    } catch (error) {
+                        console.error('Error parsing message:', error);
+                        transcript.innerHTML += event.data + ' ';
+                    }
+                };
+                
+                socket.onclose = () => {
+                    statusIndicator.className = 'status-indicator status-disconnected';
+                    statusText.textContent = 'Disconnected';
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    
+                    if (isRecording) {
+                        stopRecording();
+                    }
+                };
+                
+                socket.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    statusIndicator.className = 'status-indicator status-disconnected';
+                    statusText.textContent = 'Error: Could not connect';
+                };
+            }
+            
+            // Start recording
+            function startRecording() {
+                if (isRecording) return;
+                
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then((stream) => {
+                        audioStream = stream;
+                        setupVisualizer(stream);
+                        
+                        // Create MediaRecorder
+                        mediaRecorder = new MediaRecorder(stream);
+                        
+                        mediaRecorder.ondataavailable = (event) => {
+                            if (socket && socket.readyState === WebSocket.OPEN) {
+                                socket.send(event.data);
+                            }
+                        };
+                        
+                        // Start recording
+                        mediaRecorder.start(250); // Send data every 250ms
+                        isRecording = true;
+                        
+                        // Update buttons
+                        startBtn.disabled = true;
+                        stopBtn.disabled = false;
+                    })
+                    .catch((error) => {
+                        console.error('Error accessing microphone:', error);
+                        alert('Error accessing microphone. Please check permissions.');
+                    });
+            }
+            
+            // Stop recording
+            function stopRecording() {
+                if (!isRecording) return;
+                
+                // Stop MediaRecorder
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+                
+                // Stop audio tracks
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                }
+                
+                // Cancel visualization
+                if (drawVisual) {
+                    cancelAnimationFrame(drawVisual);
+                }
+                
+                isRecording = false;
+                
+                // Update buttons
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+            
+            // Upload file
+            function uploadFile() {
+                const file = audioFileInput.files[0];
+                if (!file) return;
+                
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('language', languageSelect.value);
+                formData.append('task', taskSelect.value);
+                
+                uploadBtn.disabled = true;
+                uploadBtn.textContent = 'Transcribing...';
+                
+                fetch('/api/transcribe', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        transcript.innerHTML += '\n[File Upload] ' + data.transcription + '\n';
+                    } else {
+                        console.error('Error:', data);
+                        alert('Error transcribing file: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error uploading file:', error);
+                    alert('Error uploading file: ' + error.message);
+                })
+                .finally(() => {
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = 'Transcribe File';
+                });
+            }
+            
+            // Event Listeners
+            startBtn.addEventListener('click', () => {
+                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    connectWebSocket();
+                    setTimeout(startRecording, 1000); // Wait for connection
+                } else {
+                    startRecording();
+                }
+            });
+            
+            stopBtn.addEventListener('click', stopRecording);
+            
+            audioFileInput.addEventListener('change', () => {
+                if (audioFileInput.files.length > 0) {
+                    fileName.textContent = audioFileInput.files[0].name;
+                    uploadBtn.disabled = false;
+                } else {
+                    fileName.textContent = 'No file chosen';
+                    uploadBtn.disabled = true;
+                }
+            });
+            
+            uploadBtn.addEventListener('click', uploadFile);
+            
+            languageSelect.addEventListener('change', () => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ language: languageSelect.value }));
+                }
+            });
+            
+            taskSelect.addEventListener('change', () => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ task: taskSelect.value }));
+                }
+            });
+            
+            // Initialize connection on page load
+            window.addEventListener('load', () => {
+                // Connect when the user interacts with the page
+                document.body.addEventListener('click', () => {
+                    if (!socket || socket.readyState !== WebSocket.OPEN) {
+                        connectWebSocket();
+                    }
+                }, { once: true });
+            });
+        </script>
+    </body>
+    </html>
+    

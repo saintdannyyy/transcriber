@@ -669,6 +669,21 @@ MODEL_CONFIG = {
     "silence_duration": 0.5     # Duration in seconds to consider silence
 }
 
+# Add this to your app.py before load_model()
+MAX_RETRIES = 3
+
+def load_model_with_retry():
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            return load_model()
+        except Exception as e:
+            retries += 1
+            logger.error(f"Model loading attempt {retries} failed: {str(e)}")
+            if retries >= MAX_RETRIES:
+                raise
+            time.sleep(5)  # Wait before retrying
+
 # Initialize app state
 app.state.start_time = time.time()
 
@@ -882,7 +897,7 @@ async def transcribe_audio(
         audio_bytes = await file.read()
         audio_data, sr = sf.read(io.BytesIO(audio_bytes))
         
-        processor, model = load_model()
+        processor, model = load_model_with_retry()
         result = process_audio(audio_data, sr, processor, model, params["language"], params["task"])
         
         if result["status"] == "error":
@@ -901,7 +916,7 @@ async def stream_audio(websocket: WebSocket, language: str = Query("ak"), task: 
 
     try:
         buffer = bytes()
-        processor, model = load_model()
+        processor, model = load_model_with_retry()
 
         while True:
             message = await websocket.receive_bytes()

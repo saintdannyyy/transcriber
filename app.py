@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
+from faster_whisper import WhisperModel
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import RedirectResponse
 
@@ -38,8 +38,8 @@ os.makedirs("templates", exist_ok=True)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="KasaYie ASR API", 
-    description="Real-time ASR API for Akan speech with support for speech impairments",
+    title="Faster Whisper ASR API", 
+    description="High-performance English speech recognition API using Faster Whisper",
     version="1.0.0"
 )
 
@@ -74,7 +74,7 @@ with open("templates/index.html", "w") as f:
     <!DOCTYPE html>
     <html>
     <head>
-        <title>KasaYie ASR API</title>
+        <title>Faster Whisper ASR API</title>
         <style>
             body { 
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -150,8 +150,8 @@ with open("templates/index.html", "w") as f:
         </style>
     </head>
     <body>
-        <h1>KasaYie ASR API</h1>
-        <p>Welcome to the KasaYie ASR API for Akan speech with support for speech impairments.</p>
+        <h1>Faster Whisper ASR API</h1>
+        <p>High-performance English speech recognition API powered by Faster Whisper.</p>
         
         <a href="/demo" class="demo-link">Try the Demo</a>
         
@@ -168,7 +168,7 @@ with open("templates/index.html", "w") as f:
             </div>
             <div class="param">
                 <div class="param-name">language</div>
-                <div>Language code: 'ak' for Akan/Twi (default), 'en' for English</div>
+                <div>Language code: 'en' for English (default), 'auto' for auto-detection</div>
             </div>
             <div class="param">
                 <div class="param-name">task</div>
@@ -176,7 +176,7 @@ with open("templates/index.html", "w") as f:
             </div>
             
             <h4>Example:</h4>
-            <pre>curl -X POST -F "file=@audio.wav" -F "language=ak" -F "task=transcribe" http://localhost:8000/api/transcribe</pre>
+            <pre>curl -X POST -F "file=@audio.wav" -F "language=en" -F "task=transcribe" http://localhost:8000/api/transcribe</pre>
         </div>
         
         <div class="endpoint">
@@ -186,7 +186,7 @@ with open("templates/index.html", "w") as f:
             <h4>Parameters:</h4>
             <div class="param">
                 <div class="param-name">language</div>
-                <div>Language code: 'ak' for Akan/Twi (default), 'en' for English</div>
+                <div>Language code: 'en' for English (default), 'auto' for auto-detection</div>
             </div>
             <div class="param">
                 <div class="param-name">task</div>
@@ -196,7 +196,7 @@ with open("templates/index.html", "w") as f:
             <h4>Example:</h4>
             <pre>
 // JavaScript example
-const socket = new WebSocket('ws://localhost:8000/api/stream?language=ak&task=transcribe');
+const socket = new WebSocket('ws://localhost:8000/api/stream?language=en&task=transcribe');
 socket.onopen = () => {
   // Start sending audio data
   navigator.mediaDevices.getUserMedia({ audio: true })
@@ -233,7 +233,7 @@ socket.onmessage = event => {
         </div>
         
         <footer>
-            KasaYie ASR API - Powered by Whisper for Akan/Twi Speech Recognition
+            Faster Whisper ASR API - High-performance English Speech Recognition
         </footer>
     </body>
     </html>
@@ -346,14 +346,14 @@ with open("static/demo.html", "w") as f:
         </style>
     </head>
     <body>
-        <h1>KasaYie ASR Demo</h1>
-        <p>Test the Akan/Twi speech recognition with support for speech impairments</p>
+        <h1>Faster Whisper ASR Demo</h1>
+        <p>Test high-performance English speech recognition powered by Faster Whisper</p>
         
         <div class="settings">
             <label for="language">Language:</label>
             <select id="language">
-                <option value="ak" selected>Akan/Twi</option>
-                <option value="en">English</option>
+                <option value="en" selected>English</option>
+                <option value="auto">Auto-detect</option>
             </select>
             
             <label for="task">Task:</label>
@@ -650,23 +650,33 @@ with open("static/demo.html", "w") as f:
 
 # Model configuration
 MODEL_CONFIG = {
-    "model_id": "Saintdannyyy/kasayie-whisper-small-akan-nonstandard",
-    "model_name": "KasaYie ASR Model",
+    "model_id": "large-v3",  # Using OpenAI's large-v3 model for better English transcription
+    "model_name": "Faster Whisper Large V3",
     "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "compute_type": "float16" if torch.cuda.is_available() else "int8",  # Use float16 for GPU, int8 for CPU
     "language_map": {
-        "ak": "yo",     # We use Yoruba as the language tag for Akan/Twi
-        "tw": "yo",     # Alternative code for Twi
         "en": "en",     # English
-        "yo": "yo"      # Yoruba (for compatibility)
+        "auto": None    # Auto-detect language
     },
-    "default_language": "ak",
+    "default_language": "en",
     "default_task": "transcribe",
     "sampling_rate": 16000,
-    "chunk_duration": 2.0,      # Duration in seconds for streaming chunks
+    "chunk_duration": 30.0,     # Faster Whisper works better with longer chunks
     "overlap_duration": 0.5,    # Overlap between chunks in seconds
-    "temperature": 0.2,         # Sampling temperature for generation
+    "temperature": 0.0,         # Use 0.0 for deterministic output
     "silence_threshold": 0.01,  # Threshold for silence detection
-    "silence_duration": 0.5     # Duration in seconds to consider silence
+    "silence_duration": 0.5,    # Duration in seconds to consider silence
+    "beam_size": 5,             # Beam search size for better accuracy
+    "best_of": 5,               # Number of candidates to consider
+    "patience": 1.0,            # Patience for beam search
+    "length_penalty": 1.0,      # Length penalty for beam search
+    "repetition_penalty": 1.0,  # Repetition penalty
+    "no_repeat_ngram_size": 0,  # No repeat n-gram size
+    "compression_ratio_threshold": 2.4,  # Compression ratio threshold
+    "log_prob_threshold": -1.0, # Log probability threshold
+    "no_speech_threshold": 0.6, # No speech threshold
+    "condition_on_previous_text": True,  # Condition on previous text for context
+    "word_timestamps": True     # Enable word-level timestamps
 }
 
 # Add this to your app.py before load_model()
@@ -690,7 +700,6 @@ app.state.start_time = time.time()
 # Model cache with lock for thread safety
 model_lock = threading.Lock()
 model_cache = {
-    "processor": None,
     "model": None,
     "last_loaded": None
 }
@@ -707,7 +716,7 @@ stats_lock = threading.Lock()
 
 # Pydantic models for requests and responses
 class TranscriptionRequest(BaseModel):
-    language: str = Field(MODEL_CONFIG["default_language"], description="Language code (ak for Akan/Twi, en for English)")
+    language: str = Field(MODEL_CONFIG["default_language"], description="Language code (en for English, auto for auto-detection)")
     task: str = Field(MODEL_CONFIG["default_task"], description="Task type: 'transcribe' or 'translate'")
 
 class TranscriptionResponse(BaseModel):
@@ -730,7 +739,7 @@ class HealthResponse(BaseModel):
     total_requests: int
     avg_processing_time: float
 
-# Load model and processor
+# Load model
 def load_model():
     global model_cache
     
@@ -740,33 +749,28 @@ def load_model():
             model_cache["last_loaded"] is not None and 
             time.time() - model_cache["last_loaded"] < 7200):
             logger.info("Using cached model")
-            return model_cache["processor"], model_cache["model"]
+            return model_cache["model"]
         
-        logger.info(f"Loading model from {MODEL_CONFIG['model_id']}...")
+        logger.info(f"Loading Faster Whisper model: {MODEL_CONFIG['model_id']}...")
         try:
-            processor = WhisperProcessor.from_pretrained(MODEL_CONFIG['model_id'])
-            model = WhisperForConditionalGeneration.from_pretrained(MODEL_CONFIG['model_id']).to(MODEL_CONFIG['device'])
+            # Initialize Faster Whisper model
+            model = WhisperModel(
+                MODEL_CONFIG['model_id'],
+                device=MODEL_CONFIG['device'],
+                compute_type=MODEL_CONFIG['compute_type']
+            )
             
-            # Apply half-precision for GPU if available for better performance
-            if MODEL_CONFIG['device'] == 'cuda':
-                model = model.half()  # Use FP16 for faster inference on GPU
-            
-            model_cache["processor"] = processor
             model_cache["model"] = model
             model_cache["last_loaded"] = time.time()
             
-            logger.info(f"Model loaded successfully on {MODEL_CONFIG['device']}")
-            return processor, model
+            logger.info(f"Faster Whisper model loaded successfully on {MODEL_CONFIG['device']}")
+            return model
         except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
+            logger.error(f"Error loading Faster Whisper model: {str(e)}")
             raise e
 
-# Initialize Whisper pipeline
-whisper_pipeline = pipeline(
-    "automatic-speech-recognition", 
-    model=MODEL_CONFIG['model_id'],
-    device=MODEL_CONFIG['device']
-)
+# Initialize Faster Whisper model (will be loaded in startup)
+whisper_model = None
 
 # Background task to pre-load model
 @app.on_event("startup")
@@ -798,8 +802,8 @@ def detect_silence(audio_data, threshold=MODEL_CONFIG["silence_threshold"],
     
     return False
 
-def process_audio(audio_data, sr, processor, model, language="ak", task="transcribe"):
-    """Process audio data and return transcription"""
+def process_audio(audio_data, sr, model, language="en", task="transcribe"):
+    """Process audio data and return transcription using Faster Whisper"""
     start_time = time.time()
     
     try:
@@ -822,26 +826,41 @@ def process_audio(audio_data, sr, processor, model, language="ak", task="transcr
             audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=MODEL_CONFIG["sampling_rate"])
             sr = MODEL_CONFIG["sampling_rate"]
         
-        # Apply pre-emphasis filter to enhance speech signal (especially for impaired speech)
+        # Apply pre-emphasis filter to enhance speech signal
         audio_data = np.append(audio_data[0], audio_data[1:] - 0.97 * audio_data[:-1])
         
         # Normalize audio to improve consistency
         audio_data = librosa.util.normalize(audio_data)
         
         # Use the language mapping
-        whisper_lang = MODEL_CONFIG["language_map"].get(language, "yo")
+        whisper_lang = MODEL_CONFIG["language_map"].get(language, None)
         
-        # Generate transcription using pipeline
-        result = whisper_pipeline(
-            audio_data, 
+        # Generate transcription using Faster Whisper
+        segments, info = model.transcribe(
+            audio_data,
             language=whisper_lang,
             task=task,
-            chunk_length_s=MODEL_CONFIG["chunk_duration"],
-            return_timestamps=True
+            beam_size=MODEL_CONFIG["beam_size"],
+            best_of=MODEL_CONFIG["best_of"],
+            patience=MODEL_CONFIG["patience"],
+            length_penalty=MODEL_CONFIG["length_penalty"],
+            repetition_penalty=MODEL_CONFIG["repetition_penalty"],
+            no_repeat_ngram_size=MODEL_CONFIG["no_repeat_ngram_size"],
+            temperature=MODEL_CONFIG["temperature"],
+            compression_ratio_threshold=MODEL_CONFIG["compression_ratio_threshold"],
+            log_prob_threshold=MODEL_CONFIG["log_prob_threshold"],
+            no_speech_threshold=MODEL_CONFIG["no_speech_threshold"],
+            condition_on_previous_text=MODEL_CONFIG["condition_on_previous_text"],
+            word_timestamps=MODEL_CONFIG["word_timestamps"]
         )
         
-        transcription = result.get("text", "")
+        # Combine all segments into a single transcription
+        transcription = " ".join([segment.text for segment in segments])
         processing_time = time.time() - start_time
+        
+        # Calculate average confidence from segments
+        confidences = [segment.avg_logprob for segment in segments if hasattr(segment, 'avg_logprob')]
+        avg_confidence = np.mean(confidences) if confidences else 0.0
         
         # Update stats
         with stats_lock:
@@ -857,7 +876,9 @@ def process_audio(audio_data, sr, processor, model, language="ak", task="transcr
             "status": "success",
             "processing_time": processing_time,
             "language": language,
-            "confidence": 0.85  # Placeholder for confidence score
+            "confidence": float(avg_confidence) if avg_confidence else None,
+            "detected_language": info.language if hasattr(info, 'language') else language,
+            "language_probability": float(info.language_probability) if hasattr(info, 'language_probability') else None
         }
     
     except Exception as e:
@@ -897,8 +918,8 @@ async def transcribe_audio(
         audio_bytes = await file.read()
         audio_data, sr = sf.read(io.BytesIO(audio_bytes))
         
-        processor, model = load_model_with_retry()
-        result = process_audio(audio_data, sr, processor, model, params["language"], params["task"])
+        model = load_model_with_retry()
+        result = process_audio(audio_data, sr, model, params["language"], params["task"])
         
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
@@ -910,13 +931,13 @@ async def transcribe_audio(
 
 # WebSocket /api/stream
 @app.websocket("/api/stream")
-async def stream_audio(websocket: WebSocket, language: str = Query("ak"), task: str = Query("transcribe")):
+async def stream_audio(websocket: WebSocket, language: str = Query("en"), task: str = Query("transcribe")):
     await websocket.accept()
     await websocket.send_json({"type": "connection_established", "message": "WebSocket connected."})
 
     try:
         buffer = bytes()
-        processor, model = load_model_with_retry()
+        model = load_model_with_retry()
 
         while True:
             message = await websocket.receive_bytes()
@@ -924,8 +945,8 @@ async def stream_audio(websocket: WebSocket, language: str = Query("ak"), task: 
 
             if len(buffer) >= int(MODEL_CONFIG["sampling_rate"] * MODEL_CONFIG["chunk_duration"] * 2):  # 16-bit PCM = 2 bytes/sample
                 audio_np, _ = sf.read(io.BytesIO(buffer), dtype='float32')
-                result = process_audio(audio_np, MODEL_CONFIG["sampling_rate"], processor, model, language, task)
-                if result["status"] == "success":
+                result = process_audio(audio_np, MODEL_CONFIG["sampling_rate"], model, language, task)
+                if result["status"] == "success" and result["transcription"].strip():
                     await websocket.send_json({"type": "transcription", "text": result["transcription"]})
                 buffer = bytes()
 
